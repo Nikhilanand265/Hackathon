@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Authentication & Owner Verification Helpers
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidInteger(val) {
+      return val is int && val >= 0 && val <= 100000;
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // Default deny all unhandled paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User Documents & Attendance Subcollections
+    match /users/{userId} {
+      // Allow user full control over their own root user profile
+      allow read, write: if isOwner(userId);
+
+      // Attendance Settings Subcollection
+      match /attendance/settings/{settingId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidInteger(request.resource.data.targetPercentage)
+          && request.resource.data.targetPercentage >= 1
+          && request.resource.data.targetPercentage <= 100;
+        allow delete: if false;
+      }
+
+      // Attendance Subjects Subcollection
+      match /attendance/subjects/{subjectId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidString(request.resource.data.name, 1, 100)
+          && isValidInteger(request.resource.data.held)
+          && isValidInteger(request.resource.data.attended)
+          && request.resource.data.attended <= request.resource.data.held;
+        allow delete: if isOwner(userId);
+      }
+
+      // Attendance Daily History Subcollection
+      match /attendance/history/{date} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidString(request.resource.data.date, 10, 10);
+        allow delete: if isOwner(userId);
+      }
+
+      // Attendance Quick Sync Logs Subcollection
+      match /attendance/quickSync/{syncId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidString(request.resource.data.subjectName, 1, 100);
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
